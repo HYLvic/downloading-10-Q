@@ -1,0 +1,84 @@
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+import json
+import requests
+import os
+
+# Let's convert CIK JSON to pandas DataFrame
+# First load the data into python dictionary
+# The dataset it used can be found at https://www.sec.gov/files/company_tickers_exchange.json
+file_path = r"C:\Users\li183\Desktop\UNC\research\company_tickers_exchange.json"
+
+with open(file_path, "r") as f:
+    CIK_dict = json.load(f)
+CIK_df = pd.DataFrame(CIK_dict["data"], columns=CIK_dict["fields"])
+
+# finding company row with given ticker
+# here is an example
+ticker = "AMMX"
+CIK_df[CIK_df["ticker"] == ticker]
+CIK = CIK_df[CIK_df["ticker"] == ticker].cik.values[0]
+
+url = f"https://data.sec.gov/submissions/CIK{str(CIK).zfill(10)}.json"
+
+# request to get the url without receiving a 403 status code
+header = {
+  "User-Agent": "vicli@unc.edu"#, 
+}
+company_filings = requests.get(url, headers=header).json()
+
+# returns up to 1000 last submitted filings sorted from latest to oldest.
+company_filings_df = pd.DataFrame(company_filings["filings"]["recent"])
+
+length_entries = len(company_filings_df[company_filings_df.form == "10-Q"])
+
+i: int = 0
+
+download_directory = r"C:\Users\li183\Desktop\UNC\research\downloaded_html"
+os.makedirs(download_directory, exist_ok=True)  # Ensure the directory exists
+
+def download_html(url, file_path, headers=None):
+    """
+    Download HTML content from a given URL and save it to the specified file path.
+
+    Parameters:
+    url (str): URL of the HTML page to download.
+    file_path (str): Path where the HTML content will be saved.
+    headers (dict, optional): Headers to be used for the HTTP request.
+    """
+    try:
+        # Send HTTP GET request to the URL
+        response = requests.get(url, headers=headers)
+        # Raise an exception if the request was unsuccessful
+        response.raise_for_status()
+
+        # Write the content to the specified file
+        with open(file_path, 'wb') as file:
+            file.write(response.content)
+        print(f"Downloaded {url} to {file_path}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error downloading {url}: {e}")
+
+
+#Using a while loop to download all files related to 10-Q
+while i < length_entries:
+    access_number = company_filings_df[company_filings_df.form == "10-Q"].iloc[i].accessionNumber.replace("-", "")
+    file_name = company_filings_df[company_filings_df.form == "10-Q"].iloc[i].primaryDocument
+
+    # Construct the URL for the HTML file
+    url = f"https://www.sec.gov/Archives/edgar/data/{CIK}/{access_number}/{file_name}"
+    
+    # Modify file name to include the index
+    # Example: "ammx_10q.htm" becomes "ammx_10q_0.htm" for the first file
+    base_name, ext = os.path.splitext(file_name)
+    file_name_with_index = f"{base_name}_{i}{ext}"
+
+    # Construct the URL for the HTML file
+    url = f"https://www.sec.gov/Archives/edgar/data/{CIK}/{access_number}/{file_name}"
+
+    # Construct the full file path for saving the HTML file
+    html_file_path = os.path.join(download_directory, file_name_with_index)
+
+    # Download the HTML content
+    download_html(url, html_file_path, headers=header)
+
+    i += 1
